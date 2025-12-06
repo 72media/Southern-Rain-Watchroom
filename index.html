@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Southern Rain Watchroom V12</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+
+    <style>
+        body { margin: 0; font-family: 'Sarabun', sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        
+        /* Popup Styles */
+        .leaflet-popup-content { font-family: 'Sarabun', sans-serif; font-size: 14px; line-height: 1.4; }
+        .rain-val { font-size: 16px; font-weight: bold; }
+        .high-rain { color: #d32f2f; font-weight: bold; }
+        .med-rain { color: #e65100; font-weight: bold; }
+        .low-rain { color: #2e7d32; font-weight: bold; }
+
+        /* Panels */
+        #control-panel, #top10-panel {
+            position: absolute; top: 10px; z-index: 1000; width: 320px;
+            background: rgba(255, 255, 255, 0.95); border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 15px;
+            max-height: 90vh; overflow-y: auto; backdrop-filter: blur(5px);
+            transition: transform 0.3s ease;
+        }
+        #control-panel { left: 60px; }
+        #top10-panel { right: 10px; display: none; top: 80px; } 
+        
+        .panel-hidden { transform: translateX(-450px); }
+        
+        #show-panel-btn {
+            position: absolute; top: 10px; left: 60px; z-index: 1000;
+            background: white; border: 2px solid #0d47a1; color: #0d47a1;
+            padding: 8px 15px; border-radius: 5px; cursor: pointer;
+            font-family: 'Sarabun', sans-serif; font-weight: bold;
+            display: none;
+        }
+        
+        #show-right-btn {
+            position: absolute; top: 80px; right: 10px; z-index: 1000;
+            background: white; border: 2px solid #0d47a1; color: #0d47a1;
+            padding: 8px 15px; border-radius: 5px; cursor: pointer;
+            font-family: 'Sarabun', sans-serif; font-weight: bold;
+            display: none;
+        }
+
+        /* Table Styles */
+        table.top10-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 5px; }
+        table.top10-table th { text-align: left; border-bottom: 2px solid #ddd; padding: 5px; color: #555; }
+        table.top10-table td { border-bottom: 1px solid #eee; padding: 8px 5px; cursor: pointer; vertical-align: middle;}
+        table.top10-table tr:hover { background-color: #f0f8ff; }
+        
+        .rank-num { background: #0d47a1; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-block; text-align: center; line-height: 20px; font-size: 10px; flex-shrink: 0;}
+        .top-1 .rank-num { background: #d32f2f; transform: scale(1.2); } 
+        .top-2 .rank-num { background: #e65100; } 
+        .top-3 .rank-num { background: #f9a825; }
+
+        .panel-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        
+        .panel-title { 
+            color: #0d47a1; font-size: 18px; font-weight: bold; text-decoration: none; 
+            cursor: pointer; border-bottom: 1px dashed transparent; transition: all 0.2s;
+        }
+        .panel-title:hover { color: #1565c0; border-bottom: 1px dashed #1565c0; }
+
+        .btn-minimize { background: none; border: none; font-size: 20px; color: #888; cursor: pointer; line-height: 1; }
+        
+        #live-clock { font-size: 13px; color: #e65100; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        #data-timestamp { font-size: 12px; color: #666; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 5px; }
+        
+        .upload-group { margin-bottom: 10px; border: 1px dashed #ccc; padding: 10px; border-radius: 6px; background: #f8f9fa; }
+        .upload-group label { display: block; font-size: 13px; margin-bottom: 5px; font-weight: bold; }
+        .status-text { font-size: 11px; margin-top: 5px; color: #666; }
+        
+        .layer-item { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px; margin-bottom: 5px; }
+        .layer-header { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+        .slider-container { margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+        input[type=range] { flex-grow: 1; height: 3px; }
+
+        /* Forecast Icon Style */
+        .custom-forecast-icon {
+            background-color: #fff; border: 2px solid #0d47a1; border-radius: 50%;
+            text-align: center; line-height: 36px; font-size: 20px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(13, 71, 161, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(13, 71, 161, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(13, 71, 161, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <button id="show-panel-btn" onclick="toggleLeftPanel(true)">⛈️ เมนูควบคุม</button>
+    <button id="show-right-btn" onclick="toggleRightPanel(true)">💧 10 อันดับฝน</button>
+
+    <div id="control-panel">
+        <div class="panel-header-row">
+            <a href="http://122.155.135.51/aws/contour-map" target="_blank" class="panel-title" title="ไปที่หน้าเว็บ Contour Map">
+                ปฏิบัติการเฝ้าระวังฝนภาคใต้
+            </a>
+            <button class="btn-minimize" onclick="toggleLeftPanel(false)" title="ซ่อนหน้าต่าง">_</button>
+        </div>
+        
+        <div id="live-clock">⏳ กำลังโหลดเวลา...</div>
+        
+        <div class="upload-group">
+            <label>1. ข้อมูลน้ำฝน (XML, JSON)</label>
+            <input type="file" id="rain-file" accept=".xml,.json">
+            <div id="rain-status" class="status-text">รอไฟล์ข้อมูล...</div>
+        </div>
+
+        <div class="upload-group">
+            <label>2. พื้นที่ลุ่มน้ำ (.kmz, .kml)</label>
+            <input type="file" id="kmz-file" accept=".kmz,.kml" multiple>
+            <div id="dem-status" class="status-text">รอไฟล์แผนที่...</div>
+        </div>
+
+        <div class="upload-group">
+            <label>3. พยากรณ์อากาศ (Yr.no)</label>
+            <div style="display:flex; align-items:center; margin-top:5px; background:white; padding:5px; border-radius:4px; border:1px solid #ddd;">
+                <input type="checkbox" id="toggle-forecast" style="width:auto; margin-right:8px; cursor:pointer;" onchange="toggleForecastLayer(this)">
+                <span style="font-size:13px; color:#0d47a1; font-weight:bold; cursor:pointer;" onclick="document.getElementById('toggle-forecast').click()">แสดงจุดพยากรณ์ล่วงหน้า</span>
+            </div>
+        </div>
+
+        <h5>ชั้นข้อมูลลุ่มน้ำ:</h5>
+        <div id="layers-list"></div>
+    </div>
+
+    <div id="top10-panel">
+        <div class="panel-header-row">
+            <span class="panel-title" style="font-size:16px;">💧 10 อันดับฝนสูงสุด</span>
+            <button class="btn-minimize" onclick="toggleRightPanel(false)">_</button>
+        </div>
+        <div id="data-timestamp">รอข้อมูล...</div>
+        <div id="top10-content"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([7.2, 100.6], 8);
+        var rainLayerGroup = L.layerGroup().addTo(map);
+        var forecastLayerGroup = L.layerGroup(); // ยังไม่ addTo(map) เพื่อซ่อนตอนแรก
+        var rainMarkers = {};
+        var currentRainList = [];
+        var stationDB = {};
+
+        var googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}",{ maxZoom: 20, subdomains: ['mt0','mt1','mt2','mt3'], attribution: "Google" });
+        var osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "OSM" });
+        var topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "OpenTopo" });
+        googleHybrid.addTo(map); 
+        L.control.layers({ "Google Hybrid": googleHybrid, "OpenStreetMap": osm, "OpenTopoMap": topo }).addTo(map);
+
+        // --- 1. จัดการพยากรณ์อากาศ (Forecast) ---
+        var forecastIcon = L.divIcon({
+            className: 'custom-forecast-icon',
+            html: "⛈️",
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            popupAnchor: [0, -20]
+        });
+
+        var forecastStations = [
+            { name: "อ.หาดใหญ่ (สงขลา)", lat: 7.0084, lng: 100.4767, id: "1610780" },
+            { name: "อ.เมืองสงขลา", lat: 7.1756, lng: 100.6143, id: "1606147" },
+            { name: "อ.เมืองปัตตานี", lat: 6.8696, lng: 101.2501, id: "1607978" },
+            { name: "อ.เมืองยะลา", lat: 6.5400, lng: 101.2813, id: "1604870" },
+            { name: "อ.เมืองนราธิวาส", lat: 6.4255, lng: 101.8253, id: "1608409" },
+            { name: "อ.เมืองสตูล", lat: 6.6238, lng: 100.0674, id: "1606376" },
+            { name: "อ.เมืองพัทลุง", lat: 7.6167, lng: 100.0833, id: "1607779" },
+            { name: "อ.เมืองตรัง", lat: 7.5563, lng: 99.6114, id: "1150007" },
+            { name: "อ.เมืองนครศรีธรรมราช", lat: 8.4333, lng: 99.9667, id: "1151933" },
+            { name: "อ.เมืองสุราษฎร์ธานี", lat: 9.1482, lng: 99.3262, id: "1150515" },
+            { name: "อ.เมืองกระบี่", lat: 8.0726, lng: 98.9105, id: "1152633" },
+            { name: "อ.เมืองภูเก็ต", lat: 7.8804, lng: 98.3923, id: "1151254" },
+            { name: "อ.เมืองระนอง", lat: 9.9658, lng: 98.6348, id: "1150965" },
+            { name: "อ.เมืองชุมพร", lat: 10.4930, lng: 99.1800, id: "1153557" },
+            { name: "อ.เบตง (ยะลา)", lat: 5.7743, lng: 101.0711, id: "1611635" },
+            { name: "อ.ร่อนพิบูลย์", lat: 8.17911, lng: 99.85425, id: "1150921" },
+            { name: "อ.เกาะสมุย", lat: 9.53567, lng: 99.93567, id: "1154689" },
+            { name: "อ.ทุ่งสง (นครศรีฯ)", lat: 8.1646, lng: 99.6804, id: "1150085" },
+            { name: "บ้านคีรีวง", lat: 8.43045, lng: 99.78104, id: "1119630" },
+            { name: "เขารามโรม", lat: 8.23353, lng: 99.79172, id: "8242731" },
+            { name: "เขาหลวง", lat: 8.54658, lng: 99.73331, id: "8243612" },
+            { name: "อ.สุไหงโก-ลก (นราธิวาส)", lat: 6.0298, lng: 101.9659, id: "1606050" }
+        ];
+
+        forecastStations.forEach(item => {
+            var marker = L.marker([item.lat, item.lng], { icon: forecastIcon }).addTo(forecastLayerGroup);
+            var svgUrl = `https://www.yr.no/en/content/2-${item.id}/meteogram.svg`;
+            var detailUrl = `https://www.yr.no/en/details/graph/2-${item.id}`; 
+            
+            var popupContent = `
+                <div style="text-align:center; min-width: 320px;">
+                    <h4 style="margin:0 0 5px; color:#0d47a1;">${item.name}</h4>
+                    <p style="font-size:12px; color:gray; margin-bottom:5px;">กราฟพยากรณ์ 48 ชม. (Yr.no)</p>
+                    <div style="background:white; padding:5px; border:1px solid #eee; border-radius:5px; margin-bottom:10px;">
+                        <img src="${svgUrl}" style="width:100%; height:auto; display:block;">
+                    </div>
+                    
+                    <a href="${detailUrl}" target="_blank" style="text-decoration:none;">
+                        <div style="background:#0d47a1; color:white; padding:8px; border-radius:4px; cursor:pointer; font-size:13px; font-weight:bold;">
+                            📊 ดูรายละเอียดเพิ่มเติม (เปิดแท็บใหม่ ↗)
+                        </div>
+                    </a>
+                </div>
+            `;
+            marker.bindPopup(popupContent, { maxWidth: 650 });
+        });
+
+        // --- Toggle Forecast Layer ---
+        function toggleForecastLayer(chk) {
+            if (chk.checked) {
+                forecastLayerGroup.addTo(map);
+            } else {
+                forecastLayerGroup.remove();
+            }
+        }
+
+        // --- Dictionary & Others ---
+        const nameDict = {
+            "Automatic Weather Station": "สถานีอุตุนิยมวิทยาอัตโนมัติ", "Weather Observing Station": "สถานีอุตุนิยมวิทยา", "Agrometeorological Station": "สถานีอุตุนิยมวิทยาเกษตร", "Weather Radar Station": "สถานีเรดาร์ตรวจอากาศ", "Hydrometeorlogical Station": "สถานีอุทกวิทยา", "Airport": "สนามบิน", "Dam": "เขื่อน", "Reservoir": "อ่างเก็บน้ำ", "City": "เมือง", "Amphoe Mueang": "อำเภอเมือง",
+            "Narathiwat": "นราธิวาส", "Pattani": "ปัตตานี", "Yala": "ยะลา", "Songkhla": "สงขลา", "Phatthalung": "พัทลุง", "Trang": "ตรัง", "Satun": "สตูล", "Nakhon Si Thammarat": "นครศรีธรรมราช", "Surat Thani": "สุราษฎร์ธานี", "Krabi": "กระบี่", "Phuket": "ภูเก็ต", "Phang Nga": "พังงา", "Ranong": "ระนอง", "Chumphon": "ชุมพร", "Prachuap Khiri Khan": "ประจวบคีรีขันธ์",
+            "Hat Yai": "หาดใหญ่", "Bacho": "บาเจาะ", "Yi-ngo": "ยี่งอ", "Takbai": "ตากใบ", "Rueso": "รือเสาะ", "Si Sakhon": "ศรีสาคร", "Waeng": "แว้ง", "Sukhirin": "สุคิริน", "Su-ngai Kolok": "สุไหงโก-ลก", "Su-ngai Padi": "สุไหงปาดี", "Chanae": "จะแนะ", "Cho-airong": "เจาะไอร้อง", "Kapho": "กะพ้อ", "Mai Kaen": "ไม้แก่น", "Mayo": "มายอ", "Nong Chik": "หนองจิก", "Panare": "ปะนาเระ", "Sai Buri": "สายบุรี", "Thung Yang Daeng": "ทุ่งยางแดง", "Yarang": "ยะรัง", "Yaring": "ยะหริ่ง", "Mae Lan": "แม่ลาน", "Maelan": "แม่ลาน", "Khok Pho": "โคกโพธิ์", "Betong": "เบตง", "Bannang Sata": "บันนังสตา", "Than To": "ธารโต", "Yaha": "ยะหา", "Raman": "รามัน", "Krong Pinang": "กรงปินัง", "Kabang": "กาบัง", "Sadao": "สะเดา", "Chana": "จะนะ", "Thepha": "เทพา", "Na Thawee": "นาทวี", "Saba Yoi": "สะบ้าย้อย", "Sathing Phra": "สทิงพระ", "Kho Hong": "คอหงส์", "Phikuntong": "พิกุลทอง", "Tha Ngio": "ท่างิ้ว", "Bangjak": "บางจาก", "Chawang": "ฉวาง", "Phrasang": "พระแสง", "Klong Tha Din Dang": "คลองท่าดินแดง", "Sawi": "สวี", "Kanjanadit": "กาญจนดิษฐ์", "Prasong": "พระแสง", "Hua Hin": "หัวหิน", "Nong Plub": "หนองพลับ", "Pran Buri": "ปราณบุรี", "Khlong Bueng": "คลองบึง", "Thap Sakae": "ทับสะแก", "Ratchaprapha": "รัชชประภา", "Tha Thong": "ท่าทอง", "Ko Samui": "เกาะสมุย", "Ko Lanta": "เกาะลันตา", "Bang Kamprad": "บ้านกำแพด", "Bang Ward": "บางวาด"
+        };
+
+        function translateName(engName) {
+            if (!engName) return engName;
+            let thaiName = engName;
+            Object.keys(nameDict).forEach(key => {
+                const regex = new RegExp(key, "gi");
+                thaiName = thaiName.replace(regex, nameDict[key]);
+            });
+            return thaiName;
+        }
+
+        function toggleLeftPanel(show) {
+            const panel = document.getElementById('control-panel');
+            const btn = document.getElementById('show-panel-btn');
+            if (show) { panel.classList.remove('panel-hidden'); btn.style.display = 'none'; } 
+            else { panel.classList.add('panel-hidden'); setTimeout(() => { btn.style.display = 'block'; }, 300); }
+        }
+
+        function toggleRightPanel(show) {
+            const panel = document.getElementById('top10-panel');
+            const btn = document.getElementById('show-right-btn');
+            if (show) { 
+                panel.style.display = 'block';
+                btn.style.display = 'none'; 
+            } else { 
+                panel.style.display = 'none';
+                btn.style.display = 'block'; 
+            }
+        }
+
+        function startClock() {
+            const update = () => {
+                const now = new Date();
+                const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+                document.getElementById('live-clock').innerHTML = `🕒 ${now.toLocaleDateString('th-TH', options)} น.`;
+            };
+            setInterval(update, 1000); update();
+        }
+        startClock();
+
+        function getRainColor(val) { return val >= 90 ? '#d32f2f' : val >= 35 ? '#f57c00' : val > 0 ? '#2e7d32' : '#757575'; }
+        function getRainClass(val) { return val >= 90 ? 'high-rain' : val >= 35 ? 'med-rain' : 'low-rain'; }
+        
+        function updateTimeDisplay() {
+            const now = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+            document.getElementById('data-timestamp').innerHTML = `📅 ข้อมูล ณ: <strong>${now.toLocaleDateString('th-TH', options)} น.</strong>`;
+        }
+
+        function processStationData(lat, lng, name, province, rain, id) {
+            if (id && lat && lng) { stationDB[id] = { lat: lat, lng: lng, name: name || id, province: province || "" }; }
+            var thaiName = translateName(name || id);
+            var thaiProvince = translateName(province || "");
+            var color = getRainColor(rain);
+            var rainClass = getRainClass(rain);
+            var alertIcon = rain >= 90 ? "🚨" : "";
+
+            var marker = L.circleMarker([lat, lng], { color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 1, radius: 9 });
+            var popupContent = `<div style="font-size:15px;"><strong>${thaiName}</strong></div><div style="font-size:11px; color:#666;">(${name})</div><small>จ.${thaiProvince}</small><hr style="margin:5px 0;">ปริมาณฝน: <span class="rain-val ${rainClass}">${rain} มม.</span> ${alertIcon}`;
+            marker.bindPopup(popupContent);
+            rainLayerGroup.addLayer(marker);
+            
+            var key = id || (name + lat); 
+            rainMarkers[key] = marker;
+            currentRainList.push({ id: key, name_th: thaiName, name_en: name, province: thaiProvince, rain: rain, lat: lat, lng: lng });
+        }
+
+        function updateTop10Table() {
+            currentRainList.sort((a, b) => b.rain - a.rain);
+            var top10 = currentRainList.slice(0, 10);
+            var html = `<table class="top10-table"><thead><tr><th>#</th><th>สถานี</th><th>ฝน (มม.)</th></tr></thead><tbody>`;
+            if (top10.length === 0) { html += `<tr><td colspan="3" style="text-align:center;">ไม่มีข้อมูล</td></tr>`; } 
+            else {
+                top10.forEach((item, index) => {
+                    var rankClass = index === 0 ? 'top-1' : (index === 1 ? 'top-2' : (index === 2 ? 'top-3' : ''));
+                    var rainClass = getRainClass(item.rain);
+                    html += `<tr onclick="zoomToStation('${item.id}', ${item.lat}, ${item.lng})"><td><span class="rank-num ${rankClass}">${index + 1}</span></td><td><b>${item.name_th}</b><br><span style="color:#888;font-size:10px;">${item.name_en}</span><br><span style="color:#555;font-size:11px;">จ.${item.province}</span></td><td class="${rainClass}" style="text-align:right; font-weight:bold;">${item.rain.toFixed(1)}</td></tr>`;
+                });
+            }
+            html += `</tbody></table>`;
+            document.getElementById('top10-content').innerHTML = html;
+            document.getElementById('top10-panel').style.display = 'block';
+            document.getElementById('show-right-btn').style.display = 'none';
+        }
+
+        window.zoomToStation = function(key, lat, lng) {
+            map.flyTo([lat, lng], 11, { duration: 1.5 });
+            setTimeout(() => { if (rainMarkers[key]) rainMarkers[key].openPopup(); }, 1600);
+        };
+
+        document.getElementById('rain-file').addEventListener('change', function(evt) {
+            var file = evt.target.files[0]; if (!file) return;
+            var status = document.getElementById('rain-status'); status.innerText = "กำลังประมวลผล...";
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var content = e.target.result; rainLayerGroup.clearLayers(); rainMarkers = {}; currentRainList = []; var count = 0; var maxRain = 0;
+                    if (file.name.toLowerCase().endsWith('.json')) {
+                        var jsonData = JSON.parse(content);
+                        var list = jsonData.timeSeriesObservation ? jsonData.timeSeriesObservation : jsonData;
+                        list.forEach(item => {
+                            var lat, lng, name, province, rain, id;
+                            if (item.station && item.measurementResults) { 
+                                id = item.station.stationCode; var latest = item.measurementResults[item.measurementResults.length - 1]; rain = parseFloat(latest.value);
+                                if (stationDB[id]) { lat = stationDB[id].lat; lng = stationDB[id].lng; name = stationDB[id].name; province = stationDB[id].province; }
+                            } else {
+                                lat = parseFloat(item.latitude); lng = parseFloat(item.longitude); rain = parseFloat(item.sensor_data); id = item.site_id || item.stationCode; name = item.site_name; province = item.province_name_en;
+                            }
+                            if (!isNaN(lat) && !isNaN(lng)) { processStationData(lat, lng, name, province, rain, id); if (rain > maxRain) maxRain = rain; count++; }
+                        });
+                    } else { 
+                        var parser = new DOMParser(); var items = parser.parseFromString(content, "text/xml").getElementsByTagName("Item");
+                        for (var i = 0; i < items.length; i++) {
+                            var lat = parseFloat(items[i].getElementsByTagName("latitude")[0]?.textContent); var lng = parseFloat(items[i].getElementsByTagName("longitude")[0]?.textContent); var name = items[i].getElementsByTagName("site_name")[0]?.textContent; var id = items[i].getElementsByTagName("site_id")[0]?.textContent; var province = items[i].getElementsByTagName("province_name_en")[0]?.textContent; var rain = parseFloat(items[i].getElementsByTagName("sensor_data")[0]?.textContent);
+                            if (!isNaN(lat) && !isNaN(lng)) { processStationData(lat, lng, name, province, rain, id); if (rain > maxRain) maxRain = rain; count++; }
+                        }
+                    }
+                    updateTop10Table(); updateTimeDisplay();
+                    status.innerHTML = `✅ อัปเดตแล้ว (${count} สถานี)<br>สูงสุด: ${maxRain} มม.`; status.style.color = count > 0 ? "green" : "orange";
+                } catch (err) { console.error(err); status.innerText = "❌ ไฟล์ผิดรูปแบบ"; status.style.color = "red"; }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('kmz-file').addEventListener('change', function(evt) {
+            var files = evt.target.files; if (!files.length) return;
+            var status = document.getElementById('dem-status'); status.innerText = `กำลังโหลด...`;
+            Array.from(files).forEach(file => {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    if (file.name.toLowerCase().endsWith('.kmz')) {
+                        JSZip.loadAsync(e.target.result).then(zip => {
+                            var kmlKey = Object.keys(zip.files).find(n => n.toLowerCase().endsWith('.kml'));
+                            if (kmlKey) zip.file(kmlKey).async("string").then(txt => processKML(txt, zip, file.name));
+                        });
+                    } else if (file.name.toLowerCase().endsWith('.kml')) {
+                        var tr = new FileReader(); tr.onload = (eText) => processKML(eText.target.result, null, file.name); tr.readAsText(file);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+            setTimeout(() => { status.innerText = "พร้อมใช้งาน"; }, 2000); evt.target.value = ''; 
+        });
+
+        function processKML(xmlText, zipObj, fileName) {
+            var parser = new DOMParser(); var xml = parser.parseFromString(xmlText, "text/xml");
+            var overlays = xml.getElementsByTagName("GroundOverlay"); var layerGroup = L.layerGroup().addTo(map); var hasContent = false;
+            if (overlays.length > 0) {
+                Array.from(overlays).forEach(overlay => {
+                    var href = overlay.getElementsByTagName("href")[0]?.textContent.trim(); var box = overlay.getElementsByTagName("LatLonBox")[0];
+                    if (href && box) {
+                        var bounds = [[parseFloat(box.getElementsByTagName("south")[0].textContent), parseFloat(box.getElementsByTagName("west")[0].textContent)],[parseFloat(box.getElementsByTagName("north")[0].textContent), parseFloat(box.getElementsByTagName("east")[0].textContent)]];
+                        if (zipObj) {
+                            var imgFile = zipObj.file(href) || zipObj.file(Object.keys(zipObj.files).find(n => n.endsWith(href.split('/').pop())));
+                            if (imgFile) { imgFile.async("blob").then(blob => { L.imageOverlay(URL.createObjectURL(blob), bounds, { opacity: 1.0 }).addTo(layerGroup); map.fitBounds(bounds); }); hasContent = true; }
+                        } else { L.imageOverlay(href, bounds, { opacity: 1.0 }).addTo(layerGroup); hasContent = true; }
+                    }
+                });
+            }
+            if (!hasContent) { 
+                var geojson = toGeoJSON.kml(xml); if (geojson.features.length > 0) { L.geoJSON(geojson, { style: { color: 'blue', weight: 2 } }).addTo(layerGroup); map.fitBounds(L.geoJSON(geojson).getBounds()); hasContent = true; }
+            }
+            if (hasContent) addLayerControl(fileName, layerGroup);
+        }
+
+        function addLayerControl(name, layer) {
+            var id = 'lyr-' + Math.random().toString(36).substr(2,9); var div = document.createElement('div'); div.className = 'layer-item';
+            div.innerHTML = `<div class="layer-header"><div><input type="checkbox" checked onchange="toggleLayer('${id}', this)"> <span class="layer-name" title="${name}">${name}</span></div><span class="btn-close" onclick="removeLayer('${id}')">×</span></div><div class="slider-container"><input type="range" min="0" max="100" value="100" oninput="setOpacity('${id}', this)"><span class="opacity-label" id="op-${id}">100%</span></div>`;
+            div.id = `div-${id}`; div.layerRef = layer; document.getElementById('layers-list').appendChild(div);
+        }
+
+        window.toggleLayer = (id, chk) => { var el = document.getElementById(`div-${id}`); chk.checked ? el.layerRef.addTo(map) : el.layerRef.remove(); }
+        window.setOpacity = (id, rng) => { var val = rng.value/100; document.getElementById(`op-${id}`).innerText = rng.value+"%"; var el = document.getElementById(`div-${id}`); el.layerRef.eachLayer(lyr => { if(lyr.setOpacity) lyr.setOpacity(val); if(lyr.setStyle) lyr.setStyle({opacity:val, fillOpacity:val*0.5}); }); }
+        window.removeLayer = (id) => { var el = document.getElementById(`div-${id}`); el.layerRef.remove(); el.remove(); }
+    </script>
+</body>
+</html>
