@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Southern Rain Watchroom V12</title>
+    <title>Southern Rain Watchroom V13 - City CCTV</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     
@@ -11,6 +11,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
         body { margin: 0; font-family: 'Sarabun', sans-serif; overflow: hidden; }
@@ -97,6 +98,17 @@
             70% { box-shadow: 0 0 0 10px rgba(13, 71, 161, 0); }
             100% { box-shadow: 0 0 0 0 rgba(13, 71, 161, 0); }
         }
+        
+        /* CCTV Icon Style */
+        .cctv-circle-icon {
+            background: #fff;
+            border: 2px solid #d32f2f;
+            border-radius: 50%;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+            overflow: hidden; 
+            display: flex; align-items: center; justify-content: center;
+        }
+        .cctv-circle-icon img { width: 80%; height: 80%; object-fit: contain; }
     </style>
 </head>
 <body>
@@ -133,6 +145,14 @@
                 <span style="font-size:13px; color:#0d47a1; font-weight:bold; cursor:pointer;" onclick="document.getElementById('toggle-forecast').click()">แสดงจุดพยากรณ์ล่วงหน้า</span>
             </div>
         </div>
+        
+        <div class="upload-group">
+            <label>4. กล้องเมืองคอน (CCTV)</label>
+            <div style="display:flex; align-items:center; margin-top:5px; background:white; padding:5px; border-radius:4px; border:1px solid #ddd;">
+                <input type="checkbox" id="toggle-city-cctv" style="width:auto; margin-right:8px; cursor:pointer;" onchange="toggleCityCCTV(this)">
+                <span style="font-size:13px; color:#d32f2f; font-weight:bold; cursor:pointer;" onclick="document.getElementById('toggle-city-cctv').click()">แสดงกล้องเมืองคอน/ทุ่งสง</span>
+            </div>
+        </div>
 
         <h5>ชั้นข้อมูลลุ่มน้ำ:</h5>
         <div id="layers-list"></div>
@@ -151,9 +171,13 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([7.2, 100.6], 8);
+        // เริ่มต้นแผนที่
+        var map = L.map('map').setView([8.40, 99.96], 11); // ปรับ View ให้เห็นตัวเมืองนครศรีฯ
+        
         var rainLayerGroup = L.layerGroup().addTo(map);
-        var forecastLayerGroup = L.layerGroup(); // ยังไม่ addTo(map) เพื่อซ่อนตอนแรก
+        var forecastLayerGroup = L.layerGroup(); 
+        var cityCCTVLayerGroup = L.layerGroup(); // Layer สำหรับกล้องเมืองคอน (ยังไม่ Add รอ Checkbox)
+
         var rainMarkers = {};
         var currentRainList = [];
         var stationDB = {};
@@ -163,6 +187,131 @@
         var topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "OpenTopo" });
         googleHybrid.addTo(map); 
         L.control.layers({ "Google Hybrid": googleHybrid, "OpenStreetMap": osm, "OpenTopoMap": topo }).addTo(map);
+
+        // ==========================================
+        // 📹 ข้อมูลกล้องเมืองคอน (CCTV List)
+        // ==========================================
+        var cctvList = [
+            { "name": "น้ำคลองท่าใหญ่ ตัวที่ 1", "streamId": "NSW01", "lat": "8.3994771", "lng": "99.8331555", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW01.m3u8" },
+            { "name": "คลองท่าใหญ่ ตัวที่ 2", "streamId": "NSW02", "lat": "8.3994771", "lng": "99.8331555", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW02.m3u8" },
+            { "name": "คลองท่าใหญ่ ตัวที่ 3", "streamId": "NSW03", "lat": "8.3994771", "lng": "99.8331555", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW03.m3u8", "isWaterLevelCamera": true, "waterLevelUrl": "https://hyd-app-db.rid.go.th/hydro8h.html" },
+            { "name": "คลองป่าเหล้า", "streamId": "NSW04", "lat": "8.40614", "lng": "99.96553", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW04.m3u8" },
+            { "name": "รามราชท้ายน้ำ", "streamId": "NSW05", "lat": "8.42972", "lng": "99.97184", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW05.m3u8" },
+            { "name": "คลองหน้าเมือง", "streamId": "NSW06", "lat": "8.42762", "lng": "99.96149", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW06.m3u8" },
+            { "name": "สะพานราเมศวร์", "streamId": "NSW07", "lat": "8.44455", "lng": "99.96112", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW07.m3u8" },
+            { "name": "คลองคูพาย (มหาราช)", "streamId": "NSW08", "lat": "8.39145", "lng": "99.97090", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW08.m3u8" },
+            { "name": "แยกหมอปาน", "streamId": "NSW09", "lat": "8.41909", "lng": "99.95475", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW09.m3u8" },
+            { "name": "ปั้มน้ำคลองลำเหมือง", "streamId": "NSW10", "lat": "8.41026", "lng": "99.97092", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW10.m3u8" },
+            { "name": "ซอยรวมแพทย์", "streamId": "NSW11", "lat": "8.43460", "lng": "99.95281", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW11.m3u8" },
+            { "name": "แยกสารีบุตรใน", "streamId": "NSW12", "lat": "8.42956", "lng": "99.96655", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW12.m3u8" },
+            { "name": "วงเวียนนอกไร่", "streamId": "NSW13", "lat": "8.44104", "lng": "99.94934", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW13.m3u8" },
+            { "name": "สี่แยกพะเนียดใน", "streamId": "NSW14", "lat": "8.43321", "lng": "99.96588", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW14.m3u8" },
+            { "name": "สี่แยกหลังวัดชะเมา", "streamId": "NSW15", "lat": "8.44947", "lng": "99.96234", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW15.m3u8" },
+            { "name": "ปากซอยต้นหว้า", "streamId": "NSW16", "lat": "8.42800", "lng": "99.95052", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW16.m3u8" },
+            { "name": "ท้ายซอยเจริญสุข", "streamId": "NSW17", "lat": "8.45621", "lng": "99.96285", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW17.m3u8" },
+            { "name": "สี่แยกมุมป้อมใน", "streamId": "NSW18", "lat": "8.4277869", "lng": "99.9673532", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW18.m3u8" },
+            { "name": "สี่แยกบ่ออ่าง-โรบินสันโอเชี่ยน", "streamId": "NSW19", "lat": "8.43803", "lng": "99.96618", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW19.m3u8" },
+            { "name": "สี่แยกประตูขาวใน", "streamId": "NSW20", "lat": "8.43085", "lng": "99.96624", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW20.m3u8" },
+            { "name": "ถนนกรแก้ว ตัวที่ 1", "streamId": "NSW21", "lat": "8.4259187", "lng": "99.9676393", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW21.m3u8" },
+            { "name": "ถนนกรแก้ว ตัวที่ 2", "streamId": "NSW22", "lat": "8.4260081", "lng": "99.9676147", "streamUrl": "https://streaming.noc.nakhoncity.org/live/NSW22.m3u8" },
+            { "name": "คลองท่าเลา (ทุ่งสง)", "streamId": "KhlongThaLao", "lat": "8.1674212", "lng": "99.6741829", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongThaLao.m3u8" },
+            { "name": "คลองท่าโหลน (ทุ่งสง)", "streamId": "KhlongThaLhon", "lat": "8.1664871", "lng": "99.7043312", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongThaLhon.m3u8" },
+            { "name": "คลองท่าแพ (ทุ่งสง)", "streamId": "KhlongThaPhae", "lat": "8.1508797", "lng": "99.6932994", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongThaPhae.m3u8" },
+            { "name": "คลองท่าเลา-เขาปรีดี(ทุ่งสง)", "streamId": "KhlongThalaoKaopreedee", "lat": "8.185210", "lng": "99.682489", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongThalaoKaopreedee.m3u8" },
+            { "name": "คลองท่าโหลน-นาเหนือ(ทุ่งสง)", "streamId": "KhlongThalonNanuea", "lat": "8.170603", "lng": "99.689699", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongThalonNanuea.m3u8" },
+            { "name": "คลองตม(ทุ่งสง)", "streamId": "KhlongTom", "lat": "8.167839", "lng": "99.680826", "streamUrl": "https://tsgcctv.fortiddns.com:8088/hls/KhlongTom.m3u8" }
+        ];
+
+        // สร้างไอคอนวงกลม
+        var cctvDivIcon = L.divIcon({
+            className: 'cctv-circle-icon',
+            html: '<img src="https://i.ibb.co/mV4LL5Yh/camera1.png" alt="CCTV">',
+            iconSize: [32, 32], // ปรับให้เล็กกว่าตัวหลักนิดนึงเพื่อไม่บัง
+            iconAnchor: [16, 16],
+            popupAnchor: [0, -16]
+        });
+
+        // Loop สร้าง Marker เตรียมไว้ใน LayerGroup
+        cctvList.forEach((cam, index) => {
+            var videoId = "city-cctv-" + index;
+            var lat = parseFloat(cam.lat);
+            var lng = parseFloat(cam.lng);
+
+            // ปุ่มระดับน้ำ (ถ้ามี)
+            var waterLevelBtn = "";
+            if (cam.isWaterLevelCamera && cam.waterLevelUrl) {
+                waterLevelBtn = `<a href="${cam.waterLevelUrl}" target="_blank" style="display:block; margin-top:5px; text-decoration:none;">
+                    <div style="background:#0277bd; color:white; padding:5px; border-radius:4px; text-align:center; font-size:12px;">📊 ดูระดับน้ำ</div>
+                </a>`;
+            }
+
+            var popupContent = `
+                <div style="text-align:center; min-width: 280px;">
+                    <h5 style="margin:0 0 5px; color:#d32f2f;">📹 ${cam.name}</h5>
+                    <div style="width:100%; height:160px; background:#000; display:flex; align-items:center; justify-content:center;">
+                        <video id="${videoId}" controls autoplay muted playsinline style="width:100%; height:100%; object-fit:contain;"></video>
+                    </div>
+                    ${waterLevelBtn}
+                    <small style="color:gray;">Stream ID: ${cam.streamId}</small>
+                </div>
+            `;
+
+            var marker = L.marker([lat, lng], { icon: cctvDivIcon })
+                .bindPopup(popupContent, { maxWidth: 320 });
+
+            // เมื่อคลิก Popup ให้โหลด HLS
+            marker.on('popupopen', function() {
+                var video = document.getElementById(videoId);
+                if (Hls.isSupported()) {
+                    var hls = new Hls();
+                    hls.loadSource(cam.streamUrl);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                        video.play().catch(e => console.log("Auto-play prevented"));
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = cam.streamUrl;
+                    video.addEventListener('loadedmetadata', function() {
+                        video.play();
+                    });
+                }
+            });
+
+            cityCCTVLayerGroup.addLayer(marker);
+        });
+
+        // ฟังก์ชันเปิด/ปิด Layer กล้องเมืองคอน
+        function toggleCityCCTV(chk) {
+            if (chk.checked) {
+                cityCCTVLayerGroup.addTo(map);
+            } else {
+                cityCCTVLayerGroup.remove();
+            }
+        }
+
+        // ==========================================
+        // 📹 กล้อง Manual เดิม (ตลาดร่อนพิบูลย์)
+        // ==========================================
+        // ไอคอนใหญ่พิเศษ
+        var cctvMainIcon = L.divIcon({
+            className: 'cctv-circle-icon',
+            html: '<img src="https://i.ibb.co/mV4LL5Yh/camera1.png" alt="CCTV">',
+            iconSize: [42, 42],
+            iconAnchor: [21, 21],
+            popupAnchor: [0, -20]
+        });
+
+        // ตลาดร่อนพิบูลย์ (Iframe)
+        var ronPhibunContent = `
+            <div style="text-align:center; min-width: 300px;">
+                <h4 style="margin:0 0 5px; color:#d32f2f;">📹 ตลาดร่อนพิบูลย์</h4>
+                <div style="width:100%; height:180px; overflow:hidden; border:1px solid #ccc; background:#000;">
+                    <iframe src="https://demo.flashphoner.com:8888/embed_player?urlServer=wss://demo.flashphoner.com:8443&streamName=rtsp%3A%2F%2Fadmin%3Apk%400639544615%40ramrome.thddns.net%3A3381%2Fstream1&mediaProviders=WebRTC,MSE" marginwidth="0" marginheight="0" frameborder="0" width="100%" height="100%" scrolling="no" allowfullscreen="allowfullscreen"></iframe>
+                </div>
+            </div>`;
+        L.marker([8.1841935, 99.8507601], {icon: cctvMainIcon}).addTo(map).bindPopup(ronPhibunContent);
+
+        // ==========================================
 
         // --- 1. จัดการพยากรณ์อากาศ (Forecast) ---
         var forecastIcon = L.divIcon({
